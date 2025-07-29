@@ -1,0 +1,6 @@
+INFO: Video ingestion started for: bank_simulation_1.mov
+INFO: Video resolution: 1920x1080
+INFO: Total frames: 3600
+INFO: Frame rate (FPS): 30.0
+INFO: Video duration: 00:02:00 (HH:MM:SS)
+INFO: Video ingestion complete for: bank_simulation_1.mov

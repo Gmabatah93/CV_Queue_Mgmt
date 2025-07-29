@@ -1,0 +1,72 @@
+[
+  {
+    "model_name": "yolo11n.pt",
+    "model_description": "YOLOv11 Nano (Fastest)",
+    "total_frames": 100,
+    "total_detections": 118,
+    "unique_persons": 4,
+    "avg_confidence": 0.6432320915036283,
+    "processing_time": 8.532185077667236,
+    "fps": 11.720327101406566,
+    "detections_per_frame": 1.18,
+    "tracking_quality": 0.6076209976204805,
+    "model_size_mb": 6.0,
+    "memory_usage_mb": 150.0
+  },
+  {
+    "model_name": "yolo11s.pt",
+    "model_description": "YOLOv11 Small (Balanced)",
+    "total_frames": 100,
+    "total_detections": 303,
+    "unique_persons": 4,
+    "avg_confidence": 0.8036201072998173,
+    "processing_time": 12.94323992729187,
+    "fps": 7.726040818353518,
+    "detections_per_frame": 3.03,
+    "tracking_quality": 0.7731632318916101,
+    "model_size_mb": 22.0,
+    "memory_usage_mb": 200.0
+  },
+  {
+    "model_name": "yolo11m.pt",
+    "model_description": "YOLOv11 Medium (Accurate)",
+    "total_frames": 100,
+    "total_detections": 377,
+    "unique_persons": 4,
+    "avg_confidence": 0.763379038170731,
+    "processing_time": 23.03114891052246,
+    "fps": 4.341945787789685,
+    "detections_per_frame": 3.77,
+    "tracking_quality": 0.7609444967889795,
+    "model_size_mb": 52.0,
+    "memory_usage_mb": 300.0
+  },
+  {
+    "model_name": "yolov8n.pt",
+    "model_description": "YOLOv8 Nano (Legacy)",
+    "total_frames": 100,
+    "total_detections": 91,
+    "unique_persons": 5,
+    "avg_confidence": 0.6234143854497554,
+    "processing_time": 8.02397894859314,
+    "fps": 12.4626448599461,
+    "detections_per_frame": 0.91,
+    "tracking_quality": 0.599879130323728,
+    "model_size_mb": 6.0,
+    "memory_usage_mb": 150.0
+  },
+  {
+    "model_name": "yolov8s.pt",
+    "model_description": "YOLOv8 Small (Legacy)",
+    "total_frames": 100,
+    "total_detections": 264,
+    "unique_persons": 4,
+    "avg_confidence": 0.7473990607893828,
+    "processing_time": 13.058788061141968,
+    "fps": 7.657678456208529,
+    "detections_per_frame": 2.64,
+    "tracking_quality": 0.727053581790933,
+    "model_size_mb": 22.0,
+    "memory_usage_mb": 200.0
+  }
+]

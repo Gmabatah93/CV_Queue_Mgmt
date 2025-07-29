@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(python -m pytest tests/test_file_handler.py tests/test_async_processor.py -v)",
+      "Bash(python:*)"
+    ],
+    "deny": []
+  }
+}
