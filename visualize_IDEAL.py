@@ -26,6 +26,7 @@ from premise_cv_platform.config.zone_config import ZoneManager, Zone, ZoneType, 
 from premise_cv_platform.storage.data_schemas import (
     Detection, LineEvent, TellerInteractionEvent, AbandonmentEvent, EventType
 )
+from premise_cv_platform.storage.csv_manager import CSVManager
 from premise_cv_platform.utils.logging_config import get_zone_logger
 from premise_cv_platform.inference.track_people import PersonTracker
 from premise_cv_platform.data_ingestion.process_video import VideoProcessor
@@ -64,7 +65,7 @@ class UpdatedZoneEventDetector:
         """Create simple zone definitions for bounding box logic."""
         return {
             'teller_access_line': {
-                'y_position': 600,
+                'y_position': 780,  # Changed from 750 to 780 (slightly lower position)
                 'x_range': (300, 800),
                 'name': 'Teller Access Line',
                 'zone_type': ZoneType.LINE
@@ -168,6 +169,10 @@ class UpdatedZoneEventDetector:
                 'line_zone_id': zone_id,
                 'timestamp': timestamp
             }
+            
+            # Store line entry for abandonment detection
+            self.tracking_states[person_id]['line_entries'].append(timestamp)
+            
         else:
             event_data = {
                 'event_type': 'teller_zone_entered',
@@ -189,6 +194,10 @@ class UpdatedZoneEventDetector:
                 'line_zone_id': zone_id,
                 'timestamp': timestamp
             }
+            
+            # Store line exit for abandonment detection
+            self.tracking_states[person_id]['line_exits'].append(timestamp)
+            
         else:
             event_data = {
                 'event_type': 'teller_zone_exited',
@@ -218,8 +227,73 @@ class UpdatedZoneEventDetector:
             'timestamp': timestamp
         }
         
+        # Store teller interaction for abandonment detection
+        self.tracking_states[person_id]['teller_interactions'].append(timestamp)
+        
         self.zone_logger.info(f"Teller interaction: {person_id} interacted with {zone_id} at {timestamp}")
         return event_data
+    
+    def detect_abandonment_events(self) -> List[AbandonmentEvent]:
+        """
+        Analyze tracking data to detect abandonment events.
+        Complex logic to correlate line entry/exit with teller interaction.
+        """
+        abandonment_events = []
+        
+        for person_id, state in self.tracking_states.items():
+            line_entries = state.get('line_entries', [])
+            line_exits = state.get('line_exits', [])
+            teller_interactions = state.get('teller_interactions', [])
+            
+            # Analyze each line entry for potential abandonment
+            for entry_time in line_entries:
+                # Find corresponding exit
+                corresponding_exit = self._find_corresponding_exit(entry_time, line_exits)
+                
+                if corresponding_exit:
+                    # Check if teller interaction occurred between entry and exit
+                    had_interaction = self._check_interaction_between_times(
+                        teller_interactions, entry_time, corresponding_exit
+                    )
+                    
+                    if not had_interaction:
+                        # This is an abandonment event
+                        abandonment_event = AbandonmentEvent(
+                            timestamp=corresponding_exit,
+                            event_type=EventType.LEFT_LINE_NO_TELLER_INTERACTION,
+                            person_id=person_id,
+                            line_entered_timestamp=entry_time,
+                            line_exited_timestamp=corresponding_exit
+                        )
+                        
+                        abandonment_events.append(abandonment_event)
+                        self.abandonment_events.append(abandonment_event)
+                        
+                        self.zone_logger.warning(
+                            f"Abandonment detected: {person_id} left line without interaction "
+                            f"(entered: {entry_time}, exited: {corresponding_exit})"
+                        )
+        
+        return abandonment_events
+    
+    def _find_corresponding_exit(self, entry_time: datetime, 
+                               exits: List[datetime]) -> Optional[datetime]:
+        """Find the exit time that corresponds to a given entry time."""
+        # Find the first exit after the entry
+        valid_exits = [exit_time for exit_time in exits if exit_time > entry_time]
+        
+        if valid_exits:
+            return min(valid_exits)  # Return the earliest exit after entry
+        
+        return None
+    
+    def _check_interaction_between_times(self, interactions: List[datetime],
+                                       start_time: datetime, end_time: datetime) -> bool:
+        """Check if any teller interaction occurred between start and end times."""
+        for interaction_time in interactions:
+            if start_time <= interaction_time <= end_time:
+                return True
+        return False
 
 
 class VisualUpdatedDetector:
@@ -229,10 +303,16 @@ class VisualUpdatedDetector:
         self.video_path = video_path
         self.tracker = PersonTracker()
         self.detector = UpdatedZoneEventDetector()
+        self.csv_manager = CSVManager()  # Add CSV manager for saving events
         
         # Visualization tracking
         self.all_events = []
         self.event_log = []
+        
+        # Event storage for CSV export
+        self.line_events: List[LineEvent] = []
+        self.teller_events: List[TellerInteractionEvent] = []
+        self.abandonment_events: List[AbandonmentEvent] = []
         
         # Load YOLO model
         print(" Loading YOLO model for visualization...")
@@ -270,6 +350,9 @@ class VisualUpdatedDetector:
                         # Process zone events
                         zone_events = self.detector.detect_zone_events(detections)
                         
+                        # Store events for CSV export
+                        self._store_events_for_export(zone_events)
+                        
                         # Create visualization
                         vis_frame = self.create_visualization(frame, detections, zone_events, frame_number)
                         
@@ -300,11 +383,80 @@ class VisualUpdatedDetector:
                 cap.release()
                 cv2.destroyAllWindows()
                 
+                # Detect abandonment events after processing all frames
+                print("\n🔍 Analyzing abandonment events...")
+                abandonment_events = self.detector.detect_abandonment_events()
+                self.abandonment_events = abandonment_events
+                
+                # Save events to CSV files
+                self._save_events_to_csv()
+                
                 # Show final results
                 self.show_final_results()
                 
         except Exception as e:
             print(f"❌ Error during visualization: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _store_events_for_export(self, zone_events: List[Dict[str, Any]]):
+        """Store events in the appropriate format for CSV export."""
+        for event in zone_events:
+            event_type = event.get('event_type')
+            person_id = event.get('person_id')
+            timestamp = event.get('timestamp')
+            
+            if event_type == EventType.LINE_ENTERED:
+                line_event = LineEvent(
+                    timestamp=timestamp,
+                    event_type=EventType.LINE_ENTERED,
+                    person_id=person_id,
+                    line_zone_id=event.get('line_zone_id', 'teller_access_line')
+                )
+                self.line_events.append(line_event)
+                
+            elif event_type == EventType.LINE_EXITED:
+                line_event = LineEvent(
+                    timestamp=timestamp,
+                    event_type=EventType.LINE_EXITED,
+                    person_id=person_id,
+                    line_zone_id=event.get('line_zone_id', 'teller_access_line')
+                )
+                self.line_events.append(line_event)
+                
+            elif event_type == EventType.TELLER_INTERACTED:
+                teller_event = TellerInteractionEvent(
+                    timestamp=timestamp,
+                    event_type=EventType.TELLER_INTERACTED,
+                    person_id=person_id,
+                    teller_zone_id=event.get('teller_zone_id', 'teller_interaction')
+                )
+                self.teller_events.append(teller_event)
+    
+    def _save_events_to_csv(self):
+        """Save all collected events to CSV files."""
+        print("\n💾 Saving events to CSV files...")
+        
+        try:
+            # Save line events
+            if self.line_events:
+                line_file = self.csv_manager.write_line_events(self.line_events)
+                print(f"  ✓ Line events saved to: {line_file}")
+            
+            # Save teller interaction events
+            if self.teller_events:
+                teller_file = self.csv_manager.write_teller_interaction_events(self.teller_events)
+                print(f"  ✓ Teller interaction events saved to: {teller_file}")
+            
+            # Save abandonment events (if any)
+            if self.abandonment_events:
+                abandonment_file = self.csv_manager.write_abandonment_events(self.abandonment_events)
+                print(f"  ✓ Abandonment events saved to: {abandonment_file}")
+            
+            print("✅ All events saved successfully!")
+            
+        except Exception as e:
+            print(f"❌ Error saving events to CSV: {e}")
             import traceback
             traceback.print_exc()
     
@@ -325,8 +477,8 @@ class VisualUpdatedDetector:
     
     def draw_zones(self, frame):
         """Draw the zones on the frame."""
-        # Draw Teller Access Line (Cyan)
-        line_y = 600
+        # Draw Teller Access Line (Cyan) - Updated to match the new y_position
+        line_y = 780  # Changed from 750 to 780 (slightly lower position)
         cv2.line(frame, (300, line_y), (800, line_y), (255, 255, 0), 3)
         cv2.putText(frame, "Teller Access Line", (300, line_y-10),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
@@ -355,8 +507,8 @@ class VisualUpdatedDetector:
             bbox = (int(detection.bbox_x1), int(detection.bbox_y1), 
                    int(detection.bbox_x2), int(detection.bbox_y2))
             
-            # Check zone status
-            in_line = self.detector._check_line_crossing(bbox, 600)
+            # Check zone status - Updated to use the new line position
+            in_line = self.detector._check_line_crossing(bbox, 780)  # Changed from 750 to 780
             in_zone = self.detector._check_zone_intersection(bbox, {
                 'x_range': (400, 700), 'y_range': (100, 300)
             })
@@ -429,6 +581,9 @@ class VisualUpdatedDetector:
         print("=" * 50)
         
         print(f" Total Events: {len(self.all_events)}")
+        print(f" Line Events: {len(self.line_events)}")
+        print(f" Teller Events: {len(self.teller_events)}")
+        print(f" Abandonment Events: {len(self.abandonment_events)}")
         
         if self.all_events:
             print(f"\n📝 Event Log:")
@@ -437,6 +592,13 @@ class VisualUpdatedDetector:
                 event = event_data['event']
                 print(f"   Frame {frame}: {event.get('event_type')} - "
                       f"Person {event.get('person_id')}")
+        
+        if self.abandonment_events:
+            print(f"\n⚠️  Abandonment Events:")
+            for abandonment in self.abandonment_events:
+                print(f"   {abandonment.person_id} abandoned line "
+                      f"(entered: {abandonment.line_entered_timestamp}, "
+                      f"exited: {abandonment.line_exited_timestamp})")
         
         print(f"\n✅ Visualization Complete!")
 
