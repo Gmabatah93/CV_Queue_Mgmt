@@ -28,6 +28,7 @@ ENV/
 # IDE
 .vscode/
 .idea/
+.streamlit/
 *.swp
 *.swo
 
@@ -44,6 +45,11 @@ data/temp/
 *.mp4
 *.avi
 *.mov
+
+# Claude
+.claude/
+PRPs/
+CLAUDE.md
 
 # Keep these
 !videos/bank_sample.MOV
