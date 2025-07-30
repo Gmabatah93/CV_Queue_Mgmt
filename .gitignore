@@ -50,6 +50,7 @@ data/temp/
 .claude/
 PRPs/
 CLAUDE.md
+examples/
 
 # Keep these
 !videos/bank_sample.MOV
